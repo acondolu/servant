@@ -134,7 +134,6 @@ import qualified Data.Text.Encoding            as TE
 import           Data.Type.Bool
                  (If)
 import           GHC.TypeLits
-                 (KnownSymbol, symbolVal)
 import           Network.URI
                  (URI (..), escapeURIString, isUnreserved)
 import           Prelude ()
@@ -173,6 +172,7 @@ import           Servant.API.Stream
                  (Stream, StreamBody')
 import           Servant.API.Sub
                  (type (:>))
+import           Servant.API.TypeErrors
 import           Servant.API.TypeLevel
 import           Servant.API.Vault
                  (Vault)
@@ -579,3 +579,46 @@ simpleToLink _ toA _ = toLink toA (Proxy :: Proxy sub)
 -- $setup
 -- >>> import Servant.API
 -- >>> import Data.Text (Text)
+
+-- The following section defines erroring instances for 'HasLink',
+-- when there are non-saturated (i.e. not fully applied) type applications
+-- on the LHS of ':>'.
+
+-- The error message indicating that @expr@ is not a valid
+-- endpoint expression in @HasLink (expr :> ...)@.
+type HasLinkError head expr = PartialApplication HasLink expr head (Arities head)
+
+-- A type family that simply collects the arities of combinators,
+-- i.e. the number of required arguments.
+-- TODO: Only 'CaptureAll' shown for now.
+type family Arities (ty :: k) :: Symbol where
+  Arities CaptureAll = "2"
+  Arities _ = "N/A"
+
+-- Erroring instances for 'HasLink' due to an unsaturated 'CaptureAll'.
+-- 'CaptureAll' has arity 2, so two cases: zero or one arguments.
+
+instance TypeError (HasLinkError CaptureAll CaptureAll)
+    => HasLink (CaptureAll :> sub)
+  where
+    type MkLink (CaptureAll :> sub) a = TypeError (HasLinkError CaptureAll CaptureAll)
+    toLink = error "unreachable"
+
+instance TypeError (HasLinkError CaptureAll (CaptureAll sym))
+    => HasLink (CaptureAll sym :> sub)
+  where
+    type MkLink (CaptureAll sym :> sub) a = TypeError (HasLinkError CaptureAll (CaptureAll sym))
+    toLink = error "unreachable"
+
+-- TODO: Errors for other combinators.
+
+-- Catch-all erroring instance for HasLink.
+-- -- Commented out for now, because GHC weirdly complains about 
+-- -- "Conflicting family instance declarations" of 'MkLink'
+-- -- between the following instance and the two instances above,
+-- -- even though the following one is overlappable.
+--
+-- instance {-# OVERLAPPABLE #-} TypeError (NoInstanceFor HasLink arr) => HasLink ((arr :: k -> l) :> sub)
+--   where
+--     type MkLink (arr :> sub) a = TypeError (NoInstanceFor HasLink arr)
+--     toLink = error "unreachable"
